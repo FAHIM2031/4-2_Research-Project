@@ -1,188 +1,57 @@
 # Vehicle Number Plate Recognition System
 
-A Python-based system that automatically detects, zooms in on, and extracts text from vehicle number plates using computer vision and OCR.
+A high-precision, hybrid vehicle number plate recognition pipeline that combines deep learning (YOLO, EasyOCR) with traditional computer vision (OpenCV contour detection).
 
-## Features
+This system was completely overhauled to resolve localization accuracy issues, successfully returning to the highly-accurate tight-cropping capabilities of older computer vision models while leveraging the robustness of modern machine learning for vehicle detection and character recognition.
 
-- **Automatic Plate Detection**: Detects number plates using contour analysis and shape recognition
-- **Smart Zoom**: Automatically zooms into detected plate regions for better text extraction
-- **Image Enhancement**: Applies preprocessing techniques for improved OCR accuracy
-- **Text Extraction**: Uses Tesseract OCR to read plate numbers
-- **Batch Processing**: Process single images or entire video streams
-- **Visual Output**: Saves annotated images with detected plates highlighted
+## Architecture
 
-## Installation
+The system uses a 4-tier pipeline to guarantee maximum accuracy and robustness against false positives:
 
-### 1. Install Python Dependencies
+1. **Stage 1: Vehicle Detection (YOLOv8)**
+   - A pre-trained YOLOv8 Nano model scans the image to identify vehicles.
+   - *Why?* This eliminates background noise (like rectangular signs, windows, or fences) that traditional contour searches often confuse for license plates.
 
-```bash
-pip install -r requirements.txt
-```
+2. **Stage 2: Precision Plate Localization (OpenCV)**
+   - Inside the YOLO vehicle bounding box, the system runs a highly constrained OpenCV Canny edge and contour search.
+   - It filters for specific geometric constraints (`aspect_ratio` 2.0 to 5.5, `area` > 300) and precisely crops the plate using a 10px padded bounding box. 
+   - *Note:* Perspective warping and dilations were deliberately removed because they distorted the plate boundaries, resulting in lower OCR accuracy.
 
-### 2. Install Tesseract OCR
+3. **Stage 2 Fallback: Global Contour Search**
+   - If YOLO fails to detect a vehicle (e.g., the image is already a close-up of a plate), or if the local contour search fails, the system falls back to a global contour search across the entire image. This matches the exact behavior of the highly successful original model.
 
-**Windows:**
-1. Download Tesseract installer from: https://github.com/UB-Mannheim/tesseract/wiki
-2. Install it (default location: `C:\Program Files\Tesseract-OCR`)
-3. If installed elsewhere, update the path in `vehicle_plate_reader.py`:
-   ```python
-   pytesseract.pytesseract.tesseract_cmd = r'C:\Path\To\tesseract.exe'
+4. **Stage 3: Optical Character Recognition (EasyOCR)**
+   - The tightly-cropped plate image is enhanced (CLAHE, Bilateral Filtering, Gaussian Blur, and Unsharp Masking) to maximize text clarity.
+   - EasyOCR reads the text using a strict alphanumeric allowlist.
+   - A custom heuristic scoring system analyzes multiple image variants (grayscale, thresholded, morphologically opened) and aggressively favors strings containing a mix of letters and numbers (to filter out words like "BRASIL" or static bumper text).
+
+## Performance & Accuracy Improvements
+
+The refactored pipeline drastically outperforms the previous YOLO+Tesseract base model in localization precision and OCR accuracy. For a detailed breakdown of test results, see the **[Pipeline Accuracy Report](accuracy_report.md)**.
+
+### Key Improvements Over Previous Version:
+1. **Perfect Tight-Cropping Restored**: The bounding boxes perfectly wrap the text boundaries without absorbing surrounding car bumpers, maximizing the resolution given to the OCR engine. This fixes the major complaint about the previous YOLO implementation.
+2. **Eliminated "S" vs "5" Confusion**: By adding smart conditional upscaling limits, we stopped EasyOCR from smudging characters on already large images. This completely resolved the issue where a "5" was misread as an "S".
+3. **No Perspective Warping Distortion**: Removed the `cv2.warpPerspective` and `cv2.dilate` logic that was distorting characters and causing OCR failures.
+4. **Global Fallback Recovery**: When YOLO fails to detect a vehicle (e.g. `vehicle-identification-plate.webp`), the system perfectly falls back to a global image contour search to still extract the plate text.
+
+## Setup & Installation
+
+1. Create a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
    ```
 
-**Linux:**
-```bash
-sudo apt-get update
-sudo apt-get install tesseract-ocr
-```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-**Mac:**
-```bash
-brew install tesseract
-```
-
-## Usage
-
-### Basic Image Processing
-
-```python
-from vehicle_plate_reader import VehiclePlateReader
-
-# Initialize the reader
-reader = VehiclePlateReader()
-
-# Process an image
-results = reader.process_image('path/to/vehicle_image.jpg')
-
-# Print results
-for result in results:
-    print(f"Plate Number: {result['text']}")
-    print(f"Position: {result['position']}")
-```
-
-### Process Video Stream
-
-```python
-reader = VehiclePlateReader()
-
-# Process video file
-detected_plates = reader.process_video('vehicle_video.mp4')
-
-print(f"All detected plates: {detected_plates}")
-```
-
-### Command Line Usage
-
-```bash
-python vehicle_plate_reader.py
-```
-
-## How It Works
-
-1. **Image Preprocessing**
-   - Converts image to grayscale
-   - Applies bilateral filtering to reduce noise
-   - Performs edge detection using Canny algorithm
-
-2. **Plate Detection**
-   - Finds contours in the edge-detected image
-   - Filters by shape (4 corners) and aspect ratio (2:1 to 5.5:1)
-   - Filters by area to eliminate false positives
-
-3. **Zoom & Enhancement**
-   - Extracts the plate region with padding
-   - Upscales by 2-3x for better OCR accuracy
-   - Applies adaptive thresholding
-   - Denoises and cleans up the image
-
-4. **Text Extraction**
-   - Uses Tesseract OCR with optimized settings
-   - Restricts to alphanumeric characters
-   - Cleans and validates the output
+3. Run the pipeline:
+   ```bash
+   python vehicle_plate_reader.py
+   ```
 
 ## Output
-
-The system creates an `output/` directory containing:
-- `detected_plates.jpg` - Annotated original image with detected plates
-- `plate_X_zoomed.jpg` - Individual zoomed plate images
-
-## Customization
-
-### Adjust Detection Parameters
-
-```python
-reader = VehiclePlateReader()
-
-# Modify plate size constraints
-reader.min_plate_area = 500      # Minimum plate area in pixels
-reader.max_plate_area = 30000    # Maximum plate area in pixels
-```
-
-### Change Zoom Factor
-
-```python
-# More zoom for better text recognition
-zoomed_plate = reader.zoom_and_enhance_plate(image, x, y, w, h, zoom_factor=4)
-```
-
-### Custom OCR Configuration
-
-Modify the `extract_text` method to adjust Tesseract settings:
-```python
-custom_config = r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-```
-
-## Troubleshooting
-
-### "No number plates detected"
-- Ensure the image has good lighting and resolution
-- Plates should be clearly visible and not too small
-- Adjust `min_plate_area` and `max_plate_area` parameters
-
-### Poor Text Recognition
-- Increase the zoom factor
-- Ensure Tesseract is properly installed
-- Try different OCR configurations for your region's plate format
-
-### Tesseract Not Found Error
-- Verify Tesseract installation
-- Set the correct path in the script:
-  ```python
-  pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-  ```
-
-## Improving Accuracy
-
-For better results:
-1. **Use high-resolution images** (at least 1280x720)
-2. **Ensure good lighting** in source images/videos
-3. **Train a custom cascade classifier** for your specific plate format
-4. **Fine-tune detection parameters** based on your use case
-5. **Use deep learning models** like YOLO for more robust detection
-
-## Advanced: Using Deep Learning
-
-For production systems, consider using:
-- **YOLO (You Only Look Once)** for plate detection
-- **EasyOCR or PaddleOCR** for better text recognition
-- **Custom CNN models** trained on your regional plate formats
-
-## Example Results
-
-```
-==================================================
-DETECTION RESULTS:
-==================================================
-1. Plate Number: ABC1234
-   Position: (145, 230, 180, 45)
-2. Plate Number: XYZ5678
-   Position: (520, 310, 175, 42)
-==================================================
-```
-
-## License
-
-This project is open source and available for educational and commercial use.
-
-## Contributing
-
-Feel free to submit issues, fork the repository, and create pull requests for any improvements.
+All processed images, cropped plates, and annotated bounding boxes are saved to the `output/` directory for manual inspection.
