@@ -1,4 +1,17 @@
+# Core image processing
 opencv-python>=4.8.0
 numpy>=1.24.0
-easyocr>=1.7.0
 Pillow>=10.0.0
+
+# OCR engine (pure Python, no Tesseract binary required)
+easyocr>=1.7.0
+
+# Stage 1 detection — YOLOv8 (auto-downloads yolov8n.pt ~6 MB on first run)
+ultralytics>=8.0.0
+
+# Deep learning backend
+# CPU-only wheels (~250 MB total). For GPU/CUDA support, install the matching
+# CUDA wheel AFTER this file:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.0.0
+torchvision>=0.15.0
